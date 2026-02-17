@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 from data.fetcher import get_candles
 from execution.order_manager import has_open_position
@@ -16,6 +17,55 @@ from indicators.atr import calculate_atr
 from indicators.bollinger import calculate_bollinger
 
 
+# =====================================================
+# Phase 4 helper (Gate 7 logic only)
+# =====================================================
+def generate_signal_from_df(df: pd.DataFrame) -> str:
+    """
+    Pure signal logic.
+    Assumes indicators already computed.
+    """
+
+    if len(df) < 25:
+        return "HOLD"
+
+    df["volume_mean20"] = df["volume"].rolling(20, min_periods=20).mean()
+    df["volume_spike"] = df["volume"] > (df["volume_mean20"] * 1.5)
+
+    width_lookback = df["bb_width"].tail(100).dropna()
+    if width_lookback.empty:
+        return "HOLD"
+
+    squeeze_threshold = float(np.percentile(width_lookback.to_numpy(), 25))
+
+    current = df.iloc[-1]
+    prev = df.iloc[-2]
+
+    squeeze_expand = (
+        float(prev["bb_width"]) <= squeeze_threshold
+        and float(current["bb_width"]) > float(prev["bb_width"]) * 1.05
+    )
+
+    if (
+        float(current["close"]) > float(current["bb_upper"])
+        and bool(current["volume_spike"])
+        and squeeze_expand
+    ):
+        return "BUY"
+
+    if (
+        float(current["close"]) < float(current["bb_lower"])
+        and bool(current["volume_spike"])
+        and squeeze_expand
+    ):
+        return "SELL"
+
+    return "HOLD"
+
+
+# =====================================================
+# Full 7-Gate strategy wrapper
+# =====================================================
 def get_signal(client, account_id) -> str:
     pair = "GBP_USD"
 
@@ -31,6 +81,7 @@ def get_signal(client, account_id) -> str:
         return "HOLD"
 
     df = get_candles(pair, "M5", count=150)
+
     df = calculate_atr(df)
     df = calculate_adx(df)
 
@@ -38,31 +89,5 @@ def get_signal(client, account_id) -> str:
         return "HOLD"
 
     df = calculate_bollinger(df, period=20, std_mult=2.0)
-    df["volume_mean20"] = df["volume"].rolling(20, min_periods=20).mean()
-    df["volume_spike"] = df["volume"] > (df["volume_mean20"] * 1.5)
 
-    width_lookback = df["bb_width"].tail(100).dropna()
-    if width_lookback.empty:
-        return "HOLD"
-    squeeze_threshold = float(np.percentile(width_lookback.to_numpy(), 25))
-
-    current = df.iloc[-1]
-    prev = df.iloc[-2]
-    squeeze_expand = (
-        float(prev["bb_width"]) <= squeeze_threshold
-        and float(current["bb_width"]) > float(prev["bb_width"]) * 1.05
-    )
-
-    if (
-        float(current["close"]) > float(current["bb_upper"])
-        and bool(current["volume_spike"])
-        and squeeze_expand
-    ):
-        return "BUY"
-    if (
-        float(current["close"]) < float(current["bb_lower"])
-        and bool(current["volume_spike"])
-        and squeeze_expand
-    ):
-        return "SELL"
-    return "HOLD"
+    return generate_signal_from_df(df)
