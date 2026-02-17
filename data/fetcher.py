@@ -70,6 +70,5 @@ def stream_price_tick(pair: str) -> dict[str, Any] | None:
     stream: Iterator[dict[str, Any]] = client.request(endpoint)
     for message in stream:
         if message.get("type") == "PRICE":
-            endpoint.terminate("received initial price tick")
             return message
     return None
