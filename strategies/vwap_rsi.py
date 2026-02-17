@@ -45,3 +45,37 @@ def get_signal(client, account_id) -> str:
     if float(last["rsi"]) > 80 and float(last["close"]) < float(last["vwap"]):
         return "SELL"
     return "HOLD"
+
+
+def get_signal(client, account_id) -> str:
+    pair = "USD_JPY"
+
+    # 1) Session gate
+    if not is_session_active(pair):
+        return "HOLD"
+    # 2) Spread gate
+    if not is_spread_acceptable_live(pair, client, account_id):
+        return "HOLD"
+    # 3) News gate
+    if not is_news_clear(pair):
+        return "HOLD"
+    # 4) Open position gate
+    if has_open_position(pair, client, account_id):
+        return "HOLD"
+    # 5) Daily loss limit gate
+    if not is_within_daily_limit(client, account_id):
+        return "HOLD"
+
+    df = get_candles(pair, "M5", count=150)
+    df = calculate_atr(df)
+    df = calculate_adx(df)
+
+    # 6) Enemy detector gate (should block trending for this strategy)
+    if not is_strategy_allowed("vwap_rsi", df):
+        return "HOLD"
+
+    df = calculate_rsi(df, period=3)
+    df = calculate_vwap(df)
+
+    # 7) Signal logic
+    return generate_signal_from_df(df)
