@@ -1,1 +1,36 @@
 timestamp,level,message
+2026-02-16T22:05:56Z,INFO,Connected to OANDA practice environment.
+2026-02-16T22:05:57Z,ERROR,Failed to initialize data connectivity: {"errorMessage":"Insufficient authorization to perform request."}
+Traceback (most recent call last):
+  File "C:\Users\ozokw\OneDrive\Desktop\scalp_bot\scalp_bot\main.py", line 57, in run
+    tick = stream_price_tick("EUR_USD")
+  File "C:\Users\ozokw\OneDrive\Desktop\scalp_bot\scalp_bot\data\fetcher.py", line 71, in stream_price_tick
+    for message in stream:
+                   ^^^^^^
+  File "C:\Users\ozokw\OneDrive\Desktop\scalp_bot\scalp_bot\venv\Lib\site-packages\oandapyV20\oandapyV20.py", line 286, in __stream_request
+    response = self.__request(method, url, request_args,
+                              headers=headers, stream=True)
+  File "C:\Users\ozokw\OneDrive\Desktop\scalp_bot\scalp_bot\venv\Lib\site-packages\oandapyV20\oandapyV20.py", line 274, in __request
+    raise V20Error(response.status_code,
+                   response.content.decode('utf-8'))
+oandapyV20.exceptions.V20Error: {"errorMessage":"Insufficient authorization to perform request."}
+2026-02-16T22:28:16Z,INFO,Connected to OANDA practice environment.
+2026-02-16T22:28:18Z,ERROR,Failed to initialize data connectivity: received initial price tick
+Traceback (most recent call last):
+  File "C:\Users\ozokw\OneDrive\Desktop\scalp_bot\scalp_bot\main.py", line 57, in run
+    tick = stream_price_tick("EUR_USD")
+  File "C:\Users\ozokw\OneDrive\Desktop\scalp_bot\scalp_bot\data\fetcher.py", line 73, in stream_price_tick
+    endpoint.terminate("received initial price tick")
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ozokw\OneDrive\Desktop\scalp_bot\scalp_bot\venv\Lib\site-packages\oandapyV20\endpoints\pricing.py", line 131, in terminate
+    self.response.throw(StreamTerminated(message))
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ozokw\OneDrive\Desktop\scalp_bot\scalp_bot\venv\Lib\site-packages\oandapyV20\oandapyV20.py", line 292, in __stream_request
+    yield data
+oandapyV20.exceptions.StreamTerminated: received initial price tick
+2026-02-16T22:34:31Z,INFO,Connected to OANDA practice environment.
+2026-02-16T22:34:32Z,INFO,Streaming test successful for EUR_USD at 2026-02-17T06:34:30.017326247Z
+2026-02-16T22:34:32Z,INFO,Starting M5 candle-synchronized loop for account 101-002-31152263-001
+2026-02-16T22:34:32Z,INFO,Waiting 28.0 seconds for next candle close.
+2026-02-16T22:35:00Z,INFO,Candle cycle triggered at 2026-02-17T06:35:00+00:00
+2026-02-16T22:35:00Z,INFO,Waiting 300.0 seconds for next candle close.
