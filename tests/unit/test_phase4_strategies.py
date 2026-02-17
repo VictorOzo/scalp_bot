@@ -79,14 +79,17 @@ def test_ema_vwap_buy_and_sell(monkeypatch: pytest.MonkeyPatch) -> None:
 
     buy_df = _base_df()
     sell_df = _base_df()
+
     monkeypatch.setattr(mod, "get_candles", lambda *args, **kwargs: _base_df())
     monkeypatch.setattr(mod, "calculate_atr", lambda df: df.assign(atr=0.001))
     monkeypatch.setattr(mod, "calculate_adx", lambda df: df.assign(adx=30.0))
+
     monkeypatch.setattr(
         mod,
         "calculate_ema",
-        lambda df: buy_df.assign(cross_up=False, cross_down=False).assign(
-            cross_up=lambda x: x.index == x.index[-1], cross_down=False
+        lambda df, *args, **kwargs: buy_df.assign(
+            cross_up=lambda x: x.index == x.index[-1],
+            cross_down=False,
         ),
     )
     monkeypatch.setattr(mod, "calculate_vwap", lambda df: df.assign(vwap=df["close"] - 0.0005))
@@ -95,12 +98,14 @@ def test_ema_vwap_buy_and_sell(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         mod,
         "calculate_ema",
-        lambda df: sell_df.assign(cross_up=False, cross_down=False).assign(
-            cross_up=False, cross_down=lambda x: x.index == x.index[-1]
+        lambda df, *args, **kwargs: sell_df.assign(
+            cross_up=False,
+            cross_down=lambda x: x.index == x.index[-1],
         ),
     )
     monkeypatch.setattr(mod, "calculate_vwap", lambda df: df.assign(vwap=df["close"] + 0.0005))
     assert mod.get_signal(client=object(), account_id="id") == "SELL"
+
 
 
 def test_bb_breakout_buy_and_sell(monkeypatch: pytest.MonkeyPatch) -> None:
