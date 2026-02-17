@@ -30,20 +30,20 @@ def generate_signal_from_df(df: pd.DataFrame) -> str:
         return "HOLD"
 
     df["volume_mean20"] = df["volume"].rolling(20, min_periods=20).mean()
-    df["volume_spike"] = df["volume"] > (df["volume_mean20"] * 1.5)
+    df["volume_spike"] = df["volume"] > (df["volume_mean20"] * 1.2)  # loosened
 
     width_lookback = df["bb_width"].tail(100).dropna()
     if width_lookback.empty:
         return "HOLD"
 
-    squeeze_threshold = float(np.percentile(width_lookback.to_numpy(), 25))
+    squeeze_threshold = float(np.percentile(width_lookback.to_numpy(), 35))  # loosened
 
     current = df.iloc[-1]
     prev = df.iloc[-2]
 
     squeeze_expand = (
         float(prev["bb_width"]) <= squeeze_threshold
-        and float(current["bb_width"]) > float(prev["bb_width"]) * 1.05
+        and float(current["bb_width"]) > float(prev["bb_width"]) * 1.02  # loosened
     )
 
     if (
@@ -61,6 +61,7 @@ def generate_signal_from_df(df: pd.DataFrame) -> str:
         return "SELL"
 
     return "HOLD"
+
 
 
 # =====================================================

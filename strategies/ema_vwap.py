@@ -1,7 +1,7 @@
 """EMA + VWAP strategy for EUR_USD."""
 
 from __future__ import annotations
-import numpy as np
+
 import pandas as pd
 
 from data.fetcher import get_candles
@@ -19,76 +19,62 @@ from indicators.vwap import calculate_vwap
 
 def generate_signal_from_df(df: pd.DataFrame) -> str:
     """
-    Pure signal logic.
-    Assumes indicators already computed.
+    Pure signal logic (Gate 7).
+    Assumes required indicators already exist: atr, vwap, cross_up, cross_down.
+    Slightly loosened VWAP confirmation using ATR tolerance.
     """
-
-    if len(df) < 25:
+    if len(df) < 30:
         return "HOLD"
 
-    df["volume_mean20"] = df["volume"].rolling(20, min_periods=20).mean()
-    df["volume_spike"] = df["volume"] > (df["volume_mean20"] * 1.5)
+    last = df.iloc[-1]
 
-    width_lookback = df["bb_width"].tail(100).dropna()
-    if width_lookback.empty:
-        return "HOLD"
+    # Defensive reads
+    close = float(last["close"])
+    vwap = float(last["vwap"])
+    atr = float(last["atr"]) if pd.notna(last.get("atr")) else 0.0
 
-    squeeze_threshold = float(np.percentile(width_lookback.to_numpy(), 25))
+    # Loosen VWAP filter a bit so crosses near VWAP can trigger
+    vwap_tol = 0.2 * atr
 
-    current = df.iloc[-1]
-    prev = df.iloc[-2]
-
-    squeeze_expand = (
-        float(prev["bb_width"]) <= squeeze_threshold
-        and float(current["bb_width"]) > float(prev["bb_width"]) * 1.05
-    )
-
-    if (
-        float(current["close"]) > float(current["bb_upper"])
-        and bool(current["volume_spike"])
-        and squeeze_expand
-    ):
+    if bool(last["cross_up"]) and close > (vwap - vwap_tol):
         return "BUY"
-
-    if (
-        float(current["close"]) < float(current["bb_lower"])
-        and bool(current["volume_spike"])
-        and squeeze_expand
-    ):
+    if bool(last["cross_down"]) and close < (vwap + vwap_tol):
         return "SELL"
 
     return "HOLD"
-
-
 
 
 def get_signal(client, account_id) -> str:
     pair = "EUR_USD"
 
+    # 1) Session gate
     if not is_session_active(pair):
         return "HOLD"
+    # 2) Spread gate
     if not is_spread_acceptable_live(pair, client, account_id):
         return "HOLD"
+    # 3) News gate
     if not is_news_clear(pair):
         return "HOLD"
+    # 4) Open position gate
     if has_open_position(pair, client, account_id):
         return "HOLD"
+    # 5) Daily loss limit gate
     if not is_within_daily_limit(client, account_id):
         return "HOLD"
 
+    # Fetch + indicators
     df = get_candles(pair, "M5", count=150)
     df = calculate_atr(df)
     df = calculate_adx(df)
 
+    # 6) Enemy detector gate
     if not is_strategy_allowed("ema_vwap", df):
         return "HOLD"
 
-    df = calculate_ema(df)
+    # Strategy indicators
+    df = calculate_ema(df, fast=9, slow=21)
     df = calculate_vwap(df)
 
-    last = df.iloc[-1]
-    if bool(last["cross_up"]) and float(last["close"]) > float(last["vwap"]):
-        return "BUY"
-    if bool(last["cross_down"]) and float(last["close"]) < float(last["vwap"]):
-        return "SELL"
-    return "HOLD"
+    # 7) Signal logic
+    return generate_signal_from_df(df)
