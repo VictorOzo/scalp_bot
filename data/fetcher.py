@@ -6,12 +6,7 @@ import time
 from collections.abc import Iterator
 from typing import Any
 
-import oandapyV20
-import oandapyV20.endpoints.instruments as instruments
-import oandapyV20.endpoints.pricing as pricing
 import pandas as pd
-import requests
-from oandapyV20.exceptions import V20Error
 
 from config.settings import DEFAULT_CANDLE_COUNT, OANDA_ACCOUNT_ID, OANDA_API_KEY, OANDA_ENV, validate_settings
 
@@ -34,8 +29,10 @@ SUPPORTED_GRANULARITIES: set[str] = {
 }
 
 
-def get_oanda_client() -> oandapyV20.API:
+def get_oanda_client():
     """Return an authenticated OANDA API client using values from settings."""
+    import oandapyV20
+
     validate_settings()
     return oandapyV20.API(access_token=OANDA_API_KEY, environment=OANDA_ENV)
 
@@ -98,6 +95,10 @@ def get_candles(pair: str, timeframe: str = "M5", count: int = DEFAULT_CANDLE_CO
 
     Retries transient request failures using exponential backoff with up to 3 attempts.
     """
+    import requests
+    import oandapyV20.endpoints.instruments as instruments
+    from oandapyV20.exceptions import V20Error
+
     _validate_candle_request(pair=pair, timeframe=timeframe, count=count)
 
     client = get_oanda_client()
@@ -122,6 +123,8 @@ def get_candles(pair: str, timeframe: str = "M5", count: int = DEFAULT_CANDLE_CO
 
 def stream_price_tick(pair: str) -> dict[str, Any] | None:
     """Return the first streamed PRICE tick for a pair, or None if unavailable."""
+    import oandapyV20.endpoints.pricing as pricing
+
     client = get_oanda_client()
     params = {"instruments": pair}
     endpoint = pricing.PricingStream(accountID=OANDA_ACCOUNT_ID, params=params)
