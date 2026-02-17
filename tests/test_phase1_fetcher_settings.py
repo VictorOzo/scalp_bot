@@ -56,13 +56,26 @@ class OandaIntegrationTestCase(unittest.TestCase):
         df = self.fetcher.get_candles("EUR_USD", timeframe="M5", count=10)
 
         self.assertIsInstance(df, self.pd.DataFrame)
-        self.assertEqual(list(df.columns), ["time", "open", "high", "low", "close", "volume"])
+        self.assertEqual(
+            list(df.columns),
+            ["time", "open", "high", "low", "close", "volume"],
+        )
         self.assertGreater(len(df), 0)
         self.assertLessEqual(len(df), 10)
 
-        self.assertTrue(self.pd.api.types.is_datetime64tz_dtype(df["time"]))
-        for column in ["open", "high", "low", "close", "volume"]:
-            self.assertTrue(self.pd.api.types.is_float_dtype(df[column]))
+        # pandas: avoid deprecated is_datetime64tz_dtype
+        self.assertTrue(isinstance(df["time"].dtype, self.pd.DatetimeTZDtype))
+
+        for column in ["open", "high", "low", "close"]:
+            self.assertTrue(
+                self.pd.api.types.is_float_dtype(df[column]),
+                msg=f"Expected float dtype for '{column}', got {df[column].dtype}",
+            )
+
+        self.assertTrue(
+            self.pd.api.types.is_integer_dtype(df["volume"]),
+            msg=f"Expected integer dtype for 'volume', got {df['volume'].dtype}",
+        )
 
     def test_invalid_credentials_raise_exception(self) -> None:
         """Invalid API key should raise an exception on authenticated account request."""
