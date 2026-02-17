@@ -66,3 +66,34 @@ def get_signal(client, account_id) -> str:
     ):
         return "SELL"
     return "HOLD"
+
+
+
+# =====================================================
+# Full 7-Gate strategy wrapper
+# =====================================================
+def get_signal(client, account_id) -> str:
+    pair = "GBP_USD"
+
+    if not is_session_active(pair):
+        return "HOLD"
+    if not is_spread_acceptable_live(pair, client, account_id):
+        return "HOLD"
+    if not is_news_clear(pair):
+        return "HOLD"
+    if has_open_position(pair, client, account_id):
+        return "HOLD"
+    if not is_within_daily_limit(client, account_id):
+        return "HOLD"
+
+    df = get_candles(pair, "M5", count=150)
+
+    df = calculate_atr(df)
+    df = calculate_adx(df)
+
+    if not is_strategy_allowed("bb_breakout", df):
+        return "HOLD"
+
+    df = calculate_bollinger(df, period=20, std_mult=2.0)
+
+    return generate_signal_from_df(df)
