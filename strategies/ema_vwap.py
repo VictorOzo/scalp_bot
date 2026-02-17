@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pandas as pd
-
 from data.fetcher import get_candles
 from execution.order_manager import has_open_position
 from execution.risk_manager import is_within_daily_limit
@@ -17,30 +15,35 @@ from indicators.ema import calculate_ema
 from indicators.vwap import calculate_vwap
 
 
-def generate_signal_from_df(df: pd.DataFrame) -> str:
-    """
-    Pure signal logic (Gate 7).
-    Assumes required indicators already exist: atr, vwap, cross_up, cross_down.
-    Slightly loosened VWAP confirmation using ATR tolerance.
-    """
-    if len(df) < 30:
+def get_signal(client, account_id) -> str:
+    pair = "EUR_USD"
+
+    if not is_session_active(pair):
+        return "HOLD"
+    if not is_spread_acceptable_live(pair, client, account_id):
+        return "HOLD"
+    if not is_news_clear(pair):
+        return "HOLD"
+    if has_open_position(pair, client, account_id):
+        return "HOLD"
+    if not is_within_daily_limit(client, account_id):
         return "HOLD"
 
+    df = get_candles(pair, "M5", count=150)
+    df = calculate_atr(df)
+    df = calculate_adx(df)
+
+    if not is_strategy_allowed("ema_vwap", df):
+        return "HOLD"
+
+    df = calculate_ema(df)
+    df = calculate_vwap(df)
+
     last = df.iloc[-1]
-
-    # Defensive reads
-    close = float(last["close"])
-    vwap = float(last["vwap"])
-    atr = float(last["atr"]) if pd.notna(last.get("atr")) else 0.0
-
-    # Loosen VWAP filter a bit so crosses near VWAP can trigger
-    vwap_tol = 0.2 * atr
-
-    if bool(last["cross_up"]) and close > (vwap - vwap_tol):
+    if bool(last["cross_up"]) and float(last["close"]) > float(last["vwap"]):
         return "BUY"
-    if bool(last["cross_down"]) and close < (vwap + vwap_tol):
+    if bool(last["cross_down"]) and float(last["close"]) < float(last["vwap"]):
         return "SELL"
-
     return "HOLD"
 
 

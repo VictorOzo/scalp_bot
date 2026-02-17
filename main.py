@@ -1,13 +1,34 @@
-"""Main runtime loop for Arch 1 Phase 1 infrastructure."""
+"""Main runtime loop for Phase 5 paper-first execution flow."""
 
 from __future__ import annotations
 
 import logging
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timezone
 
-from config.settings import OANDA_ACCOUNT_ID, TIMEFRAME, validate_settings
-from data.fetcher import get_oanda_client, stream_price_tick
+from config.pairs import PAIR_STRATEGY_MAP
+from config.settings import (
+    DEFAULT_UNITS,
+    DRY_RUN,
+    OANDA_ACCOUNT_ID,
+    RISK_PCT,
+    SL_ATR_MULT,
+    TIMEFRAME,
+    TP_ATR_MULT,
+    validate_settings,
+)
+from data.fetcher import get_candles, get_oanda_client
+from execution.order_manager import has_open_position, place_market_order
+from execution.risk_manager import compute_sl_tp_prices, compute_units_fixed_risk
+from filters.spread_filter import get_live_bid_ask
+from indicators.atr import calculate_atr
+from strategies import bb_breakout, ema_vwap, vwap_rsi
+
+STRATEGY_FN = {
+    "ema_vwap": ema_vwap.get_signal,
+    "bb_breakout": bb_breakout.get_signal,
+    "vwap_rsi": vwap_rsi.get_signal,
+}
 
 
 def setup_logging() -> logging.Logger:
@@ -36,7 +57,7 @@ def setup_logging() -> logging.Logger:
 
 def seconds_until_next_candle(timeframe_minutes: int = 5) -> float:
     """Return seconds remaining until the next candle boundary in UTC."""
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     period_seconds = timeframe_minutes * 60
     elapsed = (now.minute * 60 + now.second) % period_seconds
     remaining = period_seconds - elapsed
@@ -45,33 +66,89 @@ def seconds_until_next_candle(timeframe_minutes: int = 5) -> float:
     return float(remaining)
 
 
+def _get_account_balance(client, account_id: str) -> float | None:
+    try:
+        from oandapyV20.endpoints.accounts import AccountSummary
+
+        endpoint = AccountSummary(accountID=account_id)
+        response = client.request(endpoint)
+        return float(response["account"]["balance"])
+    except Exception:
+        return None
+
+
+def execute_cycle(client, account_id: str, logger: logging.Logger) -> None:
+    """Execute one scan-trade cycle across configured pairs."""
+    for pair, strategy_name in PAIR_STRATEGY_MAP.items():
+        signal_fn = STRATEGY_FN[strategy_name]
+        direction = signal_fn(client, account_id)
+        if direction == "HOLD":
+            continue
+
+        if has_open_position(pair, client, account_id):
+            logger.info("SKIP %s %s: existing open position", pair, strategy_name)
+            continue
+
+        bid, ask = get_live_bid_ask(pair, client, account_id)
+        entry_price = ask if direction == "BUY" else bid
+
+        df = get_candles(pair, TIMEFRAME, count=150)
+        df = calculate_atr(df)
+        atr = float(df.iloc[-1]["atr"])
+
+        sl_price, tp_price = compute_sl_tp_prices(
+            pair=pair,
+            direction=direction,
+            entry_price=entry_price,
+            atr=atr,
+            sl_atr_mult=SL_ATR_MULT,
+            tp_atr_mult=TP_ATR_MULT,
+        )
+
+        sl_distance = abs(entry_price - sl_price)
+        balance = _get_account_balance(client, account_id)
+        if balance is None:
+            units = DEFAULT_UNITS
+        else:
+            units = compute_units_fixed_risk(
+                balance=balance,
+                risk_pct=RISK_PCT,
+                pair=pair,
+                sl_distance_price=sl_distance,
+            )
+
+        if DRY_RUN:
+            print(
+                f"DRY_RUN {pair} {direction} units={units} entry={entry_price:.5f} "
+                f"sl={sl_price} tp={tp_price}"
+            )
+            continue
+
+        response = place_market_order(
+            pair=pair,
+            direction=direction,
+            units=units,
+            sl_price=sl_price,
+            tp_price=tp_price,
+            client=client,
+            account_id=account_id,
+        )
+        logger.info("ORDER %s %s placed: %s", pair, direction, response)
+
+
 def run() -> None:
-    """Run a candle-synchronized loop with basic API connectivity checks."""
+    """Run a candle-synced execution loop."""
     logger = setup_logging()
     validate_settings()
+    client = get_oanda_client()
 
-    try:
-        client = get_oanda_client()
-        logger.info("Connected to OANDA %s environment.", client.environment)
-
-        tick = stream_price_tick("EUR_USD")
-        if tick:
-            logger.info("Streaming test successful for EUR_USD at %s", tick.get("time"))
-        else:
-            logger.warning("Streaming test did not return a price tick.")
-    except Exception as exc:
-        logger.exception("Failed to initialize data connectivity: %s", exc)
-        raise
-
-    logger.info("Starting %s candle-synchronized loop for account %s", TIMEFRAME, OANDA_ACCOUNT_ID)
+    logger.info("Phase 5 engine started. DRY_RUN=%s", DRY_RUN)
 
     while True:
         wait_seconds = seconds_until_next_candle(timeframe_minutes=5)
         logger.info("Waiting %.1f seconds for next candle close.", wait_seconds)
         time.sleep(wait_seconds)
-
-        cycle_time = datetime.now(UTC).replace(second=0, microsecond=0)
-        logger.info("Candle cycle triggered at %s", cycle_time.isoformat())
+        execute_cycle(client, OANDA_ACCOUNT_ID, logger)
 
 
 if __name__ == "__main__":
