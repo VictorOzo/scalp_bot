@@ -10,8 +10,6 @@ PAIR_CURRENCIES: Final[dict[str, list[str]]] = {
     "GBP_USD": ["GBP", "USD"],
     "USD_JPY": ["USD", "JPY"],
 }
-
-# Simple default: block High only. If you want Medium too, set {"High", "Medium"}.
 BLOCK_IMPACTS: Final[set[str]] = {"High"}
 
 
@@ -29,10 +27,7 @@ def get_blocking_news_event(
     buffer_minutes: int = 15,
     events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
-    """
-    Return the first blocking event dict if a blocking event is within +/- buffer_minutes.
-    ForexFactory schema expected keys: title, country, date, impact.
-    """
+    """Return the first blocking High-impact event within the configured window."""
     if events is None:
         return None
 
@@ -48,11 +43,11 @@ def get_blocking_news_event(
         if impact not in BLOCK_IMPACTS:
             continue
 
-        currency = event.get("country")  # ForexFactory uses 'country' as currency code
+        currency = event.get("country") or event.get("currency")
         if currency not in currencies:
             continue
 
-        raw_time = event.get("date")  # ForexFactory uses 'date'
+        raw_time = event.get("date") or event.get("time")
         if not raw_time or not isinstance(raw_time, str):
             continue
 
@@ -73,8 +68,19 @@ def is_news_clear(
     buffer_minutes: int = 15,
     events: list[dict[str, Any]] | None = None,
 ) -> bool:
-    """Return True when no blocking events are near current time."""
-    return get_blocking_news_event(pair, now_utc, buffer_minutes, events) is None
+    """Return True when no blocking High-impact events are near current time.
+
+    If no events are supplied, this performs a best-effort calendar fetch. Any fetch
+    failure is treated as clear (simple offline-first mode).
+    """
+    resolved_events = events
+    if resolved_events is None:
+        try:
+            resolved_events = fetch_forexfactory_calendar()
+        except Exception:
+            return True
+
+    return get_blocking_news_event(pair, now_utc, buffer_minutes, resolved_events) is None
 
 
 def fetch_forexfactory_calendar(timeout_s: int = 5) -> list[dict[str, Any]]:
