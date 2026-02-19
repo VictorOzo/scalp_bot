@@ -191,7 +191,8 @@ def backtest_strategy(
     seed: int = 123,
     mode: Literal["sl_tp", "time_exit"] = "sl_tp",
     hold_bars: int = 5,
-) -> dict[str, dict[str, float] | float | bool]:
+    min_trades: int = 30,  # ✅ NEW
+) -> dict[str, object]:
     """Run walk-forward backtest and return train/validation metrics."""
     if mode not in {"sl_tp", "time_exit"}:
         raise ValueError("mode must be 'sl_tp' or 'time_exit'")
@@ -202,25 +203,31 @@ def backtest_strategy(
     rng_train = random.Random(seed)
     rng_val = random.Random(seed + 1)
 
-    train_trades = _run_segment(train_df, pair, strategy_module, warmup, lookahead, mode, hold_bars, rng_train)
+    train_trades = _run_segment(
+        train_df, pair, strategy_module, warmup, lookahead, mode, hold_bars, rng_train
+    )
     validation_trades = _run_segment(
-        validation_df,
-        pair,
-        strategy_module,
-        warmup,
-        lookahead,
-        mode,
-        hold_bars,
-        rng_val,
+        validation_df, pair, strategy_module, warmup, lookahead, mode, hold_bars, rng_val
     )
 
     train_metrics = compute_metrics(train_trades)
     validation_metrics = compute_metrics(validation_trades)
     gap = abs(float(train_metrics["win_rate"]) - float(validation_metrics["win_rate"]))
 
+    train_n = int(train_metrics.get("total_trades", 0))
+    val_n = int(validation_metrics.get("total_trades", 0))
+
+    if train_n < min_trades or val_n < min_trades:
+        overfit_warning = False
+        overfit_reason = "insufficient_trades"
+    else:
+        overfit_warning = gap > 0.15
+        overfit_reason = "gap_exceeds_threshold" if overfit_warning else ""
+
     return {
         "train": train_metrics,
         "validation": validation_metrics,
         "gap": gap,
-        "overfit_warning": gap > 0.15,
+        "overfit_warning": overfit_warning,
+        "overfit_reason": overfit_reason,
     }
