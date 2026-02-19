@@ -1,16 +1,18 @@
-# Scalp Bot (Phase 6)
+# Scalp Bot (Phase 7)
 
 ## Scope
-This repository is currently in **Phase 6**:
+This repository is currently in **Phase 7**:
 - Phase 2 data pipeline hardening for OANDA candle ingestion
 - Technical indicator modules (ATR, ADX, RSI, EMA, VWAP, MACD, Bollinger)
 - Phase 3 trading gates (session, spread, news, market-state)
 - Phase 4 strategy signal generation with mandatory 7-gate flow
 - Phase 5 paper-first execution engine with SL/TP attached on entry
-- Phase 6 risk management v2.0:
-  - Broker-aware sizing from live instrument specs (`AccountInstruments`)
-  - ATR-based protective prices with fixed risk/reward structure
-  - Execution-layer daily loss and open-position limit guards
+- Phase 6 risk management v2.0
+- **Phase 7 offline backtesting v2.0**:
+  - Spread + slippage cost simulation in pips
+  - Dual execution modes: `sl_tp` and `time_exit`
+  - Walk-forward train/validation split with overfit warning
+  - Per-pair strategy mapping runner in `tests/tools/backtest_run.py`
 
 ## Phase 6 risk rules
 - Max risk per trade: **1%** (`RISK_PER_TRADE=0.01`)
@@ -29,6 +31,50 @@ Every strategy evaluates in this exact order:
 5. Daily loss limit (`execution/risk_manager.py`)
 6. Enemy state allowed (`filters/market_state.py`)
 7. Signal logic (`strategies/*.py`)
+
+## Phase 7 backtesting
+
+### Run the offline backtest tool
+Single pair:
+```bash
+python -m tests.tools.backtest_run --pair EUR_USD --csv tests/fixtures/sample_ohlcv.csv --mode sl_tp
+```
+
+All configured pairs:
+```bash
+python -m tests.tools.backtest_run --csv tests/fixtures/sample_ohlcv.csv --mode time_exit
+```
+
+### Cost model
+Backtests are fully offline (CSV-only) and apply execution costs before PnL:
+- `spread` is modeled as round-turn pips and half-spread is applied at entry.
+- `slippage` is uniformly sampled in `[0, max_slip]` pips.
+- Effective entry price is adjusted by both spread and slippage.
+
+### `sl_tp` vs `time_exit`
+- `sl_tp` (default):
+  - Entry at current close.
+  - SL/TP computed from ATR via existing risk manager helper.
+  - Future bars are scanned for SL/TP hit; otherwise trade times out.
+- `time_exit`:
+  - Entry at next bar open.
+  - Exit at `hold_bars` bars later.
+  - SL/TP is ignored.
+
+### Walk-forward validation
+- Data is split into train/validation using `train_pct` (default 70/30).
+- Strategy is backtested independently on each split.
+- Win-rate gap is computed as `abs(train_win_rate - validation_win_rate)`.
+- Overfit warning is raised when gap exceeds `0.15` (15%).
+
+### Backtest performance thresholds
+| Metric | Minimum |
+|---|---:|
+| Win Rate | >50% |
+| Profit Factor | >1.3 |
+| Max Drawdown | <25% |
+| Sharpe | >1.0 |
+| Train/Val gap | <15% |
 
 ## Execution safety
 - `DRY_RUN` defaults to `True`.
@@ -52,6 +98,7 @@ Every strategy evaluates in this exact order:
 pytest -q
 python -m tests.tools.run_phase3_console
 python -m tests.tools.signal_scan
+python -m tests.tools.backtest_run --csv tests/fixtures/sample_ohlcv.csv
 ```
 
 ## Debug integration lines
