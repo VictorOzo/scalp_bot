@@ -22,6 +22,45 @@ def has_open_position(pair: str, client, account_id: str) -> bool:
         return True
 
 
+def count_open_positions(client, account_id: str) -> tuple[int, dict[str, int]]:
+    """Return total count of open instruments and per-pair net unit map.
+
+    Fails closed by returning an impossible high count and empty map on API errors.
+    """
+    try:
+        from oandapyV20.endpoints import positions
+
+        request = positions.OpenPositions(account_id)
+        client.request(request)
+        positions_data = request.response.get("positions", [])
+
+        per_pair: dict[str, int] = {}
+        total_open = 0
+        for pos in positions_data:
+            pair = pos.get("instrument")
+            long_units = int(pos.get("long", {}).get("units", 0))
+            short_units = int(pos.get("short", {}).get("units", 0))
+            net_units = long_units - abs(short_units)
+            if net_units != 0 and pair:
+                per_pair[pair] = net_units
+                total_open += 1
+
+        return total_open, per_pair
+    except Exception:
+        return 99_999, {}
+
+
+def can_open_new_position(pair: str, client, account_id: str, max_total: int = 3) -> bool:
+    """Return True when pair is not already open and total open is under max."""
+    try:
+        if has_open_position(pair, client, account_id):
+            return False
+        total_open, _ = count_open_positions(client, account_id)
+        return total_open < max_total
+    except Exception:
+        return False
+
+
 def get_open_units(pair: str, client, account_id: str) -> int:
     """Return signed net open units for the pair (long - short).
 
