@@ -8,18 +8,20 @@ from datetime import datetime, timezone
 
 from config.pairs import PAIR_STRATEGY_MAP
 from config.settings import (
-    DEFAULT_UNITS,
     DRY_RUN,
     OANDA_ACCOUNT_ID,
-    RISK_PCT,
-    SL_ATR_MULT,
     TIMEFRAME,
-    TP_ATR_MULT,
     validate_settings,
 )
 from data.fetcher import get_candles, get_oanda_client
-from execution.order_manager import has_open_position, place_market_order
-from execution.risk_manager import compute_sl_tp_prices, compute_units_fixed_risk
+from execution.order_manager import can_open_new_position, place_market_order
+from execution.risk_manager import (
+    MAX_OPEN_POSITIONS_TOTAL,
+    calculate_position_size,
+    calculate_sl_tp,
+    get_instrument_specs,
+    is_within_daily_limit,
+)
 from filters.spread_filter import get_live_bid_ask
 from indicators.atr import calculate_atr
 from strategies import bb_breakout, ema_vwap, vwap_rsi
@@ -66,16 +68,6 @@ def seconds_until_next_candle(timeframe_minutes: int = 5) -> float:
     return float(remaining)
 
 
-def _get_account_balance(client, account_id: str) -> float | None:
-    try:
-        from oandapyV20.endpoints.accounts import AccountSummary
-
-        endpoint = AccountSummary(accountID=account_id)
-        response = client.request(endpoint)
-        return float(response["account"]["balance"])
-    except Exception:
-        return None
-
 
 def execute_cycle(client, account_id: str, logger: logging.Logger) -> None:
     """Execute one scan-trade cycle across configured pairs."""
@@ -85,8 +77,14 @@ def execute_cycle(client, account_id: str, logger: logging.Logger) -> None:
         if direction == "HOLD":
             continue
 
-        if has_open_position(pair, client, account_id):
-            logger.info("SKIP %s %s: existing open position", pair, strategy_name)
+        if not can_open_new_position(
+            pair, client, account_id, max_total=MAX_OPEN_POSITIONS_TOTAL
+        ):
+            logger.info("SKIP %s %s: position limits reached", pair, strategy_name)
+            continue
+
+        if not is_within_daily_limit(client, account_id):
+            logger.info("SKIP %s %s: daily loss limit reached", pair, strategy_name)
             continue
 
         bid, ask = get_live_bid_ask(pair, client, account_id)
@@ -96,25 +94,25 @@ def execute_cycle(client, account_id: str, logger: logging.Logger) -> None:
         df = calculate_atr(df)
         atr = float(df.iloc[-1]["atr"])
 
-        sl_price, tp_price = compute_sl_tp_prices(
-            pair=pair,
-            direction=direction,
-            entry_price=entry_price,
-            atr=atr,
-            sl_atr_mult=SL_ATR_MULT,
-            tp_atr_mult=TP_ATR_MULT,
-        )
+        sl_price, tp_price = calculate_sl_tp(entry_price, direction, atr)
 
-        sl_distance = abs(entry_price - sl_price)
-        balance = _get_account_balance(client, account_id)
-        if balance is None:
-            units = DEFAULT_UNITS
+        try:
+            from oandapyV20.endpoints.accounts import AccountSummary
+
+            endpoint = AccountSummary(accountID=account_id)
+            response = client.request(endpoint)
+            balance = float(response["account"]["balance"])
+        except Exception:
+            specs = get_instrument_specs(pair, client, account_id)
+            units = int(specs.get("min_units", 1))
         else:
-            units = compute_units_fixed_risk(
-                balance=balance,
-                risk_pct=RISK_PCT,
+            units = calculate_position_size(
                 pair=pair,
-                sl_distance_price=sl_distance,
+                entry=entry_price,
+                sl_price=sl_price,
+                balance=balance,
+                client=client,
+                account_id=account_id,
             )
 
         if DRY_RUN:
