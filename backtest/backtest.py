@@ -84,8 +84,6 @@ def compute_metrics(trades_df: pd.DataFrame) -> dict[str, float]:
     if trades_df.empty:
         return {
             "total_trades": 0,
-            "wins": 0,
-            "losses": 0,
             "win_rate": 0.0,
             "profit_factor": 0.0,
             "gross_win_pips": 0.0,
@@ -106,15 +104,10 @@ def compute_metrics(trades_df: pd.DataFrame) -> dict[str, float]:
     drawdowns = peaks - equity_curve
 
     mean = float(pnl.mean())
-    if len(pnl) < 2:
-        std = 0.0
-    else:
-        std = float(pnl.std(ddof=1))
+    std = float(pnl.std(ddof=0))
 
     return {
         "total_trades": int(len(trades_df)),
-        "wins": int((pnl > 0).sum()),
-        "losses": int((pnl < 0).sum()),
         "win_rate": float((pnl > 0).mean()),
         "profit_factor": float(gross_win / gross_loss) if gross_loss > 0 else float("inf"),
         "gross_win_pips": gross_win,
@@ -198,8 +191,7 @@ def backtest_strategy(
     seed: int = 123,
     mode: Literal["sl_tp", "time_exit"] = "sl_tp",
     hold_bars: int = 5,
-    min_trades: int = 30,
-) -> dict[str, dict[str, float] | float | bool | str]:
+) -> dict[str, dict[str, float] | float | bool]:
     """Run walk-forward backtest and return train/validation metrics."""
     if mode not in {"sl_tp", "time_exit"}:
         raise ValueError("mode must be 'sl_tp' or 'time_exit'")
@@ -226,20 +218,9 @@ def backtest_strategy(
     validation_metrics = compute_metrics(validation_trades)
     gap = abs(float(train_metrics["win_rate"]) - float(validation_metrics["win_rate"]))
 
-    train_total = int(train_metrics["total_trades"])
-    validation_total = int(validation_metrics["total_trades"])
-
-    if train_total < min_trades or validation_total < min_trades:
-        overfit_warning = False
-        overfit_reason = "insufficient_trades"
-    else:
-        overfit_warning = gap > 0.15
-        overfit_reason = "gap_exceeds_threshold" if overfit_warning else ""
-
     return {
         "train": train_metrics,
         "validation": validation_metrics,
         "gap": gap,
-        "overfit_warning": overfit_warning,
-        "overfit_reason": overfit_reason,
+        "overfit_warning": gap > 0.15,
     }
