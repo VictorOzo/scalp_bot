@@ -70,3 +70,26 @@ python -m tests.tools.backtest_run --csv tests/fixtures/sample_ohlcv.csv
 
 ## Safety warning
 This project is still not production-ready for live trading.
+
+## Dashboard Phase D1 (SQLite single source of truth)
+- Dashboard telemetry now uses SQLite as a shared control-plane store.
+- `SCALP_BOT_DB_PATH` controls which SQLite file is used for dashboard state.
+- Default dashboard DB path: `storage/scalp_bot.sqlite` (relative to repo root).
+- Phase D1 is offline-friendly: tests and snapshot writes run without OANDA/network access.
+- FastAPI and Next.js integration come in later dashboard phases.
+
+### Inspect latest gate snapshots
+```bash
+python - <<'PY'
+from storage.db import connect, init_db
+
+with connect() as conn:
+    init_db(conn)
+    rows = conn.execute(
+        "SELECT ts_utc, pair, strategy, final_signal, reason FROM gate_snapshots ORDER BY id DESC LIMIT 10"
+    ).fetchall()
+
+for row in rows:
+    print(row)
+PY
+```
