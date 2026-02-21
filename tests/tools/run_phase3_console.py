@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ import pandas as pd
 from config.pairs import PAIR_STRATEGY_MAP
 from config.settings import OANDA_ACCOUNT_ID, OANDA_API_KEY
 from data.fetcher import get_candles, get_oanda_client
+from execution.control_state import PAUSE_COMMANDS, apply_pause_command
 from filters.market_state import get_market_state, is_strategy_allowed
 from filters.news_filter import fetch_forexfactory_calendar, get_blocking_news_event
 from filters.session_filter import SESSIONS, is_session_active
@@ -20,6 +22,7 @@ from indicators.ema import calculate_ema
 from indicators.macd import calculate_macd
 from indicators.rsi import calculate_rsi
 from indicators.vwap import calculate_vwap
+from storage.commands import fetch_next_pending, mark_command_done, mark_command_failed, mark_command_running
 from storage.db import connect, init_db, write_gate_snapshot, write_heartbeat
 
 
@@ -48,6 +51,39 @@ def _load_offline_fixture() -> pd.DataFrame:
     return df
 
 
+def _load_latest_paused_pairs(conn) -> set[str]:
+    row = conn.execute("SELECT paused_pairs_json FROM bot_status ORDER BY id DESC LIMIT 1").fetchone()
+    if row is None or row[0] is None:
+        return set()
+
+    try:
+        payload = json.loads(row[0])
+    except json.JSONDecodeError:
+        return set()
+    return set(payload if isinstance(payload, list) else [])
+
+
+def _process_one_pending_command(conn, paused_pairs: set[str]) -> tuple[set[str], int | None]:
+    command = fetch_next_pending(conn)
+    if command is None:
+        return paused_pairs, None
+
+    command_id = int(command["id"])
+    mark_command_running(conn, command_id)
+
+    if command["type"] not in PAUSE_COMMANDS:
+        mark_command_failed(conn, command_id, error=f"Command not implemented in phase D2: {command['type']}")
+        return paused_pairs, command_id
+
+    updated = apply_pause_command(paused_pairs, command)
+    mark_command_done(
+        conn,
+        command_id,
+        result={"paused_pairs": sorted(updated), "type": command["type"]},
+    )
+    return updated, command_id
+
+
 def run_console() -> None:
     live_mode = bool(OANDA_API_KEY and OANDA_ACCOUNT_ID)
     client = get_oanda_client() if live_mode else None
@@ -65,10 +101,32 @@ def run_console() -> None:
     now = datetime.now(timezone.utc)
 
     try:
+        paused_pairs = _load_latest_paused_pairs(conn)
+        paused_pairs, command_id = _process_one_pending_command(conn, paused_pairs)
+
         for pair, strategy_name in PAIR_STRATEGY_MAP.items():
             print("\n" + "-" * 100)
             print(f"PAIR: {pair} | STRATEGY: {strategy_name}")
             print(f"UTC now: {now.isoformat()}")
+
+            if pair in paused_pairs:
+                print("FINAL: HOLD (paused)")
+                write_gate_snapshot(
+                    conn,
+                    ts_utc=now.isoformat(),
+                    pair=pair,
+                    strategy=strategy_name,
+                    session_ok=False,
+                    spread_ok=False,
+                    news_ok=False,
+                    open_pos_ok=False,
+                    daily_ok=False,
+                    enemy_ok=False,
+                    final_signal="HOLD",
+                    reason="paused",
+                    details={"paused_by": "command", "command_id": command_id},
+                )
+                continue
 
             if live_mode:
                 df = get_candles(pair, timeframe="M5", count=200)
@@ -153,7 +211,7 @@ def run_console() -> None:
             version=None,
             uptime_s=None,
             last_cycle_ts_utc=now.isoformat(),
-            paused_pairs=None,
+            paused_pairs=sorted(paused_pairs),
             meta={"tool": "tests.tools.run_phase3_console", "pairs": list(PAIR_STRATEGY_MAP.keys())},
         )
     finally:
