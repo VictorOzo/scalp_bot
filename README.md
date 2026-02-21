@@ -93,3 +93,54 @@ for row in rows:
     print(row)
 PY
 ```
+
+## Dashboard Phase D2 (command queue + audit log)
+- New `commands` table stores control-plane intents (`pending`, `running`, `done`, `failed`) with optional `idempotency_key` for de-duplication.
+- New `audit_log` table records all command lifecycle events (`COMMAND_ENQUEUED`, `COMMAND_DONE`, `COMMAND_FAILED`) with actor attribution.
+- Command types currently accepted by schema/API:
+  - `PAUSE_PAIR`, `RESUME_PAIR`, `PAUSE_ALL`, `RESUME_ALL`
+  - `CLOSE_PAIR`, `CLOSE_ALL`, `RELOAD_PARAMS`
+- In Phase D2 execution, only pause/resume commands are applied in the bot cycle. Close/reload behavior is deferred to later phases.
+
+### Enqueue a pause command
+```bash
+python - <<'PY'
+from storage.db import connect, init_db
+from storage.commands import enqueue_command
+
+with connect() as conn:
+    init_db(conn)
+    command_id = enqueue_command(
+        conn,
+        actor="local",
+        type="PAUSE_PAIR",
+        payload={"pair": "EUR_USD"},
+        idempotency_key="pause-eurusd-001",
+    )
+    print("queued", command_id)
+PY
+```
+
+### Inspect pending commands and audit rows
+```bash
+python - <<'PY'
+from storage.db import connect, init_db
+
+with connect() as conn:
+    init_db(conn)
+    commands = conn.execute(
+        "SELECT id, status, type, actor, created_ts_utc FROM commands WHERE status='pending' ORDER BY created_ts_utc ASC"
+    ).fetchall()
+    audit = conn.execute(
+        "SELECT ts_utc, actor, action, command_id FROM audit_log ORDER BY id DESC LIMIT 20"
+    ).fetchall()
+
+print("pending commands")
+for row in commands:
+    print(row)
+
+print("recent audit")
+for row in audit:
+    print(row)
+PY
+```

@@ -70,6 +70,28 @@ def init_db(conn: sqlite3.Connection) -> None:
             details_json TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS commands (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_ts_utc TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            type TEXT NOT NULL,
+            payload_json TEXT,
+            idempotency_key TEXT,
+            status TEXT NOT NULL,
+            started_ts_utc TEXT,
+            finished_ts_utc TEXT,
+            result_json TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_utc TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            action TEXT NOT NULL,
+            command_id INTEGER,
+            details_json TEXT
+        );
+
         CREATE INDEX IF NOT EXISTS idx_gate_snapshots_ts_utc
         ON gate_snapshots(ts_utc);
 
@@ -78,6 +100,19 @@ def init_db(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_bot_status_ts_utc
         ON bot_status(ts_utc);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_commands_idempotency_key
+        ON commands(idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_commands_status_created_ts
+        ON commands(status, created_ts_utc);
+
+        CREATE INDEX IF NOT EXISTS idx_audit_log_ts_utc
+        ON audit_log(ts_utc);
+
+        CREATE INDEX IF NOT EXISTS idx_audit_log_command_id
+        ON audit_log(command_id);
         """
     )
     conn.commit()
