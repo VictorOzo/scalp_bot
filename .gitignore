@@ -25,3 +25,25 @@ __pycache__/
 Thumbs.db
 .vscode/
 .idea/
+# Node
+node_modules/
+dashboard/node_modules/
+.next/
+dashboard/.next/
+out/
+dist/
+
+# Env
+.env
+.env.*
+.env.local
+.env.*.local
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# DB
+storage/*.sqlite
