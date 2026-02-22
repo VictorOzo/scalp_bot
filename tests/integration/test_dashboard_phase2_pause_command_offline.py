@@ -23,7 +23,7 @@ def test_pause_command_lifecycle_and_gate_effect_offline(tmp_path):
 
         command_row = conn.execute("SELECT status, result_json FROM commands WHERE id = ?", (command_id,)).fetchone()
         done_audit_count = conn.execute(
-            "SELECT COUNT(*) FROM audit_log WHERE command_id = ? AND action = 'COMMAND_DONE'",
+            "SELECT COUNT(*) FROM audit_log WHERE command_id = ? AND action = 'COMMAND_COMPLETED'",
             (command_id,),
         ).fetchone()[0]
         snapshot = conn.execute(
@@ -39,7 +39,7 @@ def test_pause_command_lifecycle_and_gate_effect_offline(tmp_path):
         conn.close()
 
     assert command_row is not None
-    assert command_row[0] == "done"
+    assert command_row[0] == "SUCCEEDED"
     assert "EUR_USD" in command_row[1]
     assert done_audit_count == 1
     assert snapshot == ("HOLD", "paused")
