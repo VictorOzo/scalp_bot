@@ -28,6 +28,9 @@ DAILY_MAX_LOSS: Final[float] = 0.03
 DEFAULT_CANDLE_COUNT: Final[int] = 200
 
 DRY_RUN: bool = _env_bool("DRY_RUN", True)
+LIVE_TRADING_ENABLED: bool = _env_bool("LIVE_TRADING_ENABLED", False)
+COMMAND_POLL_INTERVAL_SEC: float = float(os.getenv("COMMAND_POLL_INTERVAL_SEC", "1.0"))
+COMMAND_RUNNING_TIMEOUT_SEC: float = float(os.getenv("COMMAND_RUNNING_TIMEOUT_SEC", "300"))
 RISK_PCT: float = float(os.getenv("RISK_PCT", "0.005"))
 DEFAULT_UNITS: int = int(os.getenv("DEFAULT_UNITS", "1000"))
 SL_ATR_MULT: float = float(os.getenv("SL_ATR_MULT", "1.5"))

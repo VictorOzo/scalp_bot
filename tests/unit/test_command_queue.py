@@ -22,7 +22,7 @@ def test_enqueue_command_inserts_pending(tmp_path):
         conn.close()
 
     assert row is not None
-    assert row[0] == "pending"
+    assert row[0] == "PENDING"
     assert row[1] == "local"
     assert row[2] == "PAUSE_PAIR"
     assert json.loads(row[3]) == {"pair": "EUR_USD"}
@@ -87,11 +87,11 @@ def test_command_status_transitions(tmp_path):
     finally:
         conn.close()
 
-    assert running[0] == "running"
+    assert running[0] == "RUNNING"
     assert running[1] is not None
-    assert done[0] == "done"
+    assert done[0] == "SUCCEEDED"
     assert done[1] is not None
-    assert failed[0] == "failed"
+    assert failed[0] == "FAILED"
     assert json.loads(failed[1])["error"] == "boom"
 
 
