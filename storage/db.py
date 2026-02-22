@@ -93,6 +93,21 @@ def init_db(conn: sqlite3.Connection) -> None:
             details_json TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL,
+            created_ts_utc TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value_json TEXT NOT NULL,
+            updated_ts_utc TEXT NOT NULL,
+            updated_by TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_gate_snapshots_ts_utc
         ON gate_snapshots(ts_utc);
 
@@ -114,6 +129,9 @@ def init_db(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_audit_log_command_id
         ON audit_log(command_id);
+
+        CREATE INDEX IF NOT EXISTS idx_users_username
+        ON users(username);
         """
     )
     columns = {row[1] for row in conn.execute("PRAGMA table_info(commands)").fetchall()}
