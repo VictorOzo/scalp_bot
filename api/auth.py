@@ -1,3 +1,4 @@
+# api/auth.py
 from __future__ import annotations
 
 import base64
@@ -23,7 +24,7 @@ from config.settings import (
     API_JWT_EXPIRES_MIN,
     API_JWT_SECRET,
 )
-from storage.db import connect, init_db, utc_now_iso
+from storage.db import connect, utc_now_iso
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -124,14 +125,26 @@ def get_current_user_from_cookie(cookie_value: str | None, conn: sqlite3.Connect
     return AuthenticatedUser(id=int(row[0]), username=str(row[1]), role=str(row[2]))
 
 
+def _cookie_domain() -> str | None:
+    """
+    Domain should be unset for localhost/127 dev or browsers may drop the cookie.
+    """
+    if not API_COOKIE_DOMAIN:
+        return None
+    if API_COOKIE_DOMAIN in {"localhost", "127.0.0.1"}:
+        return None
+    return API_COOKIE_DOMAIN
+
+
 def set_auth_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         key=API_COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=API_COOKIE_SECURE,
-        samesite=API_COOKIE_SAMESITE,
-        domain=API_COOKIE_DOMAIN,
+        secure=API_COOKIE_SECURE,      # must be False on http dev
+        samesite=API_COOKIE_SAMESITE,  # "lax" for dev
+        domain=_cookie_domain(),
+        path="/",
         max_age=API_JWT_EXPIRES_MIN * 60,
     )
 
@@ -142,14 +155,14 @@ def clear_auth_cookie(response: Response) -> None:
         httponly=True,
         secure=API_COOKIE_SECURE,
         samesite=API_COOKIE_SAMESITE,
-        domain=API_COOKIE_DOMAIN,
+        domain=_cookie_domain(),
+        path="/",
     )
 
 
 @router.post("/login", response_model=LoginResponse)
 def login(payload: LoginRequest, response: Response) -> LoginResponse:
     conn = connect()
-    init_db(conn)
     try:
         row = conn.execute(
             "SELECT username, password_hash, role FROM users WHERE username = ?",
@@ -187,7 +200,6 @@ def bootstrap_admin_from_env() -> None:
     if not ADMIN_BOOTSTRAP_USER or not ADMIN_BOOTSTRAP_PASS:
         return
     conn = connect()
-    init_db(conn)
     try:
         ensure_user(conn, username=ADMIN_BOOTSTRAP_USER, password=ADMIN_BOOTSTRAP_PASS, role="admin")
     finally:

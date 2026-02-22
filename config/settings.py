@@ -1,4 +1,7 @@
-"""Application settings for Arch 1 Forex scalping bot."""
+# config/settings.py
+"""
+Application settings for Arch 1 Forex scalping bot.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +11,6 @@ from typing import Final
 from dotenv import load_dotenv
 
 load_dotenv()
-
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -31,15 +33,23 @@ DRY_RUN: bool = _env_bool("DRY_RUN", True)
 LIVE_TRADING_ENABLED: bool = _env_bool("LIVE_TRADING_ENABLED", False)
 COMMAND_POLL_INTERVAL_SEC: float = float(os.getenv("COMMAND_POLL_INTERVAL_SEC", "1.0"))
 COMMAND_RUNNING_TIMEOUT_SEC: float = float(os.getenv("COMMAND_RUNNING_TIMEOUT_SEC", "300"))
+
 API_JWT_SECRET: str = os.getenv("API_JWT_SECRET", "dev-insecure-secret")
 API_JWT_ALG: str = os.getenv("API_JWT_ALG", "HS256")
 API_JWT_EXPIRES_MIN: int = int(os.getenv("API_JWT_EXPIRES_MIN", str(60 * 24)))
+
 API_COOKIE_NAME: str = os.getenv("API_COOKIE_NAME", "sb_auth")
 API_COOKIE_SECURE: bool = _env_bool("API_COOKIE_SECURE", False)
 API_COOKIE_SAMESITE: str = os.getenv("API_COOKIE_SAMESITE", "lax")
+
+# IMPORTANT:
+# For localhost development, DO NOT set API_COOKIE_DOMAIN.
+# Leaving it unset makes the cookie "host-only" and reliable on localhost/127.0.0.1.
 API_COOKIE_DOMAIN: str | None = os.getenv("API_COOKIE_DOMAIN")
+
 ADMIN_BOOTSTRAP_USER: str | None = os.getenv("ADMIN_BOOTSTRAP_USER")
 ADMIN_BOOTSTRAP_PASS: str | None = os.getenv("ADMIN_BOOTSTRAP_PASS")
+
 RISK_PCT: float = float(os.getenv("RISK_PCT", "0.005"))
 DEFAULT_UNITS: int = int(os.getenv("DEFAULT_UNITS", "1000"))
 SL_ATR_MULT: float = float(os.getenv("SL_ATR_MULT", "1.5"))

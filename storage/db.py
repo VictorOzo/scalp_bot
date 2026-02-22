@@ -1,4 +1,7 @@
-"""SQLite storage utilities for dashboard state and telemetry."""
+# storage/db.py
+"""
+SQLite storage utilities for dashboard state and telemetry.
+"""
 
 from __future__ import annotations
 
@@ -20,10 +23,19 @@ def get_db_path() -> Path:
 
 
 def connect(db_path: Path | None = None) -> sqlite3.Connection:
-    """Open a SQLite connection, creating parent directories when needed."""
+    """
+    Open a SQLite connection, creating parent directories when needed.
+
+    Why:
+    FastAPI may create/close dependency resources in different threads.
+    SQLite connections are thread-bound unless check_same_thread=False.
+    """
     path = db_path or get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    return sqlite3.connect(path)
+
+    conn = sqlite3.connect(path, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def utc_now_iso() -> str:
@@ -31,8 +43,37 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _ensure_table(conn: sqlite3.Connection, name: str, ddl: str) -> None:
+    conn.execute(f"CREATE TABLE IF NOT EXISTS {name} ({ddl})")
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column_ddl: str) -> None:
+    """
+    Add a column if missing.
+
+    Notes:
+    - SQLite supports ADD COLUMN with limited constraint support.
+    - Avoid adding NOT NULL without DEFAULT to existing tables.
+    """
+    col_name = column_ddl.strip().split()[0]
+    cols = _table_columns(conn, table)
+    if col_name not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column_ddl}")
+
+
 def init_db(conn: sqlite3.Connection) -> None:
-    """Create dashboard storage tables and indexes if they do not already exist."""
+    """
+    Create storage tables and indexes if they do not already exist.
+
+    IMPORTANT:
+    - Migrations must run BEFORE creating indexes that reference new columns.
+    - This function is safe to call repeatedly.
+    """
+    # --- Core tables (no indexes that depend on future migrations) ---
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS bot_status (
@@ -93,6 +134,18 @@ def init_db(conn: sqlite3.Connection) -> None:
             details_json TEXT
         );
 
+        -- Positions table: create if missing (schema aligned to api/routes/positions.py)
+        CREATE TABLE IF NOT EXISTS positions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pair TEXT NOT NULL,
+            direction TEXT,
+            units REAL,
+            entry_price REAL,
+            time_open_utc TEXT,
+            is_open INTEGER NOT NULL DEFAULT 1,
+            meta_json TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
@@ -107,7 +160,25 @@ def init_db(conn: sqlite3.Connection) -> None:
             updated_ts_utc TEXT NOT NULL,
             updated_by TEXT NOT NULL
         );
+        """
+    )
 
+    # --- Migrations (add missing columns safely) ---
+    _ensure_column(conn, "commands", "handled_by TEXT")
+
+    # positions columns required by /positions route
+    _ensure_column(conn, "positions", "direction TEXT")
+    _ensure_column(conn, "positions", "units REAL")
+    _ensure_column(conn, "positions", "entry_price REAL")
+    _ensure_column(conn, "positions", "time_open_utc TEXT")
+    _ensure_column(conn, "positions", "is_open INTEGER NOT NULL DEFAULT 1")
+    _ensure_column(conn, "positions", "meta_json TEXT")
+
+    conn.commit()
+
+    # --- Indexes (safe after migrations) ---
+    conn.executescript(
+        """
         CREATE INDEX IF NOT EXISTS idx_gate_snapshots_ts_utc
         ON gate_snapshots(ts_utc);
 
@@ -134,9 +205,25 @@ def init_db(conn: sqlite3.Connection) -> None:
         ON users(username);
         """
     )
-    columns = {row[1] for row in conn.execute("PRAGMA table_info(commands)").fetchall()}
-    if "handled_by" not in columns:
-        conn.execute("ALTER TABLE commands ADD COLUMN handled_by TEXT")
+
+    # Positions indexes: only create those whose columns exist (defensive)
+    pos_cols = _table_columns(conn, "positions")
+
+    if "time_open_utc" in pos_cols:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_positions_time_open_utc ON positions(time_open_utc)"
+        )
+
+    if "pair" in pos_cols and "time_open_utc" in pos_cols:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_positions_pair_time_open_utc ON positions(pair, time_open_utc)"
+        )
+
+    if "is_open" in pos_cols and "time_open_utc" in pos_cols:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_positions_is_open_time_open_utc ON positions(is_open, time_open_utc)"
+        )
+
     conn.commit()
 
 
