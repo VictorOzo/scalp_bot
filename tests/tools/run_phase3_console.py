@@ -8,9 +8,9 @@ from typing import Any
 import pandas as pd
 
 from config.pairs import PAIR_STRATEGY_MAP
-from config.settings import OANDA_ACCOUNT_ID, OANDA_API_KEY
+from config.settings import COMMAND_RUNNING_TIMEOUT_SEC, OANDA_ACCOUNT_ID, OANDA_API_KEY
 from data.fetcher import get_candles, get_oanda_client
-from execution.control_state import PAUSE_COMMANDS, apply_pause_command
+from execution.command_executor import process_next_command
 from filters.market_state import get_market_state, is_strategy_allowed
 from filters.news_filter import fetch_forexfactory_calendar, get_blocking_news_event
 from filters.session_filter import SESSIONS, is_session_active
@@ -22,7 +22,7 @@ from indicators.ema import calculate_ema
 from indicators.macd import calculate_macd
 from indicators.rsi import calculate_rsi
 from indicators.vwap import calculate_vwap
-from storage.commands import fetch_next_pending, mark_command_done, mark_command_failed, mark_command_running
+from storage.commands import fail_stale_running_commands
 from storage.db import connect, init_db, write_gate_snapshot, write_heartbeat
 
 
@@ -63,27 +63,6 @@ def _load_latest_paused_pairs(conn) -> set[str]:
     return set(payload if isinstance(payload, list) else [])
 
 
-def _process_one_pending_command(conn, paused_pairs: set[str]) -> tuple[set[str], int | None]:
-    command = fetch_next_pending(conn)
-    if command is None:
-        return paused_pairs, None
-
-    command_id = int(command["id"])
-    mark_command_running(conn, command_id)
-
-    if command["type"] not in PAUSE_COMMANDS:
-        mark_command_failed(conn, command_id, error=f"Command not implemented in phase D2: {command['type']}")
-        return paused_pairs, command_id
-
-    updated = apply_pause_command(paused_pairs, command)
-    mark_command_done(
-        conn,
-        command_id,
-        result={"paused_pairs": sorted(updated), "type": command["type"]},
-    )
-    return updated, command_id
-
-
 def run_console() -> None:
     live_mode = bool(OANDA_API_KEY and OANDA_ACCOUNT_ID)
     client = get_oanda_client() if live_mode else None
@@ -102,7 +81,9 @@ def run_console() -> None:
 
     try:
         paused_pairs = _load_latest_paused_pairs(conn)
-        paused_pairs, command_id = _process_one_pending_command(conn, paused_pairs)
+        fail_stale_running_commands(conn, timeout_sec=COMMAND_RUNNING_TIMEOUT_SEC, handled_by="run_phase3_console")
+        paused_pairs, command_result = process_next_command(conn, paused_pairs=paused_pairs, handled_by="run_phase3_console")
+        command_id = None if command_result is None else int(command_result["id"])
 
         for pair, strategy_name in PAIR_STRATEGY_MAP.items():
             print("\n" + "-" * 100)

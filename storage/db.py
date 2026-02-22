@@ -80,7 +80,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             status TEXT NOT NULL,
             started_ts_utc TEXT,
             finished_ts_utc TEXT,
-            result_json TEXT
+            result_json TEXT,
+            handled_by TEXT
         );
 
         CREATE TABLE IF NOT EXISTS audit_log (
@@ -115,6 +116,9 @@ def init_db(conn: sqlite3.Connection) -> None:
         ON audit_log(command_id);
         """
     )
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(commands)").fetchall()}
+    if "handled_by" not in columns:
+        conn.execute("ALTER TABLE commands ADD COLUMN handled_by TEXT")
     conn.commit()
 
 

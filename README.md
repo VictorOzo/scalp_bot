@@ -94,13 +94,15 @@ for row in rows:
 PY
 ```
 
-## Dashboard Phase D2 (command queue + audit log)
-- New `commands` table stores control-plane intents (`pending`, `running`, `done`, `failed`) with optional `idempotency_key` for de-duplication.
-- New `audit_log` table records all command lifecycle events (`COMMAND_ENQUEUED`, `COMMAND_DONE`, `COMMAND_FAILED`) with actor attribution.
+## Dashboard Phase D3 (DB-driven command executor)
+- `commands` now use deterministic statuses: `PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`, `SKIPPED`.
+- Bot loop polls queued commands, claims atomically, executes handlers, and writes structured `result_json`.
+- `CLOSE_PAIR` and `CLOSE_ALL` are now executable in addition to pause/resume commands.
+- `audit_log` captures claim/start/per-action/completion lifecycle events.
 - Command types currently accepted by schema/API:
   - `PAUSE_PAIR`, `RESUME_PAIR`, `PAUSE_ALL`, `RESUME_ALL`
   - `CLOSE_PAIR`, `CLOSE_ALL`, `RELOAD_PARAMS`
-- In Phase D2 execution, only pause/resume commands are applied in the bot cycle. Close/reload behavior is deferred to later phases.
+- Live close commands are guarded by `LIVE_TRADING_ENABLED=true`; otherwise they are safely marked `SKIPPED`.
 
 ### Enqueue a pause command
 ```bash
@@ -121,6 +123,23 @@ with connect() as conn:
 PY
 ```
 
+### Enqueue a paper close command manually (SQL)
+```bash
+python - <<'PY'
+from storage.db import connect, init_db
+
+with connect() as conn:
+    init_db(conn)
+    conn.execute(
+        """
+        INSERT INTO commands (created_ts_utc, actor, type, payload_json, status)
+        VALUES (datetime('now'), 'local', 'CLOSE_PAIR', '{"pair":"EUR_USD","mode":"PAPER"}', 'PENDING')
+        """
+    )
+    conn.commit()
+PY
+```
+
 ### Inspect pending commands and audit rows
 ```bash
 python - <<'PY'
@@ -129,7 +148,7 @@ from storage.db import connect, init_db
 with connect() as conn:
     init_db(conn)
     commands = conn.execute(
-        "SELECT id, status, type, actor, created_ts_utc FROM commands WHERE status='pending' ORDER BY created_ts_utc ASC"
+        "SELECT id, status, type, actor, created_ts_utc FROM commands WHERE status='PENDING' ORDER BY created_ts_utc ASC"
     ).fetchall()
     audit = conn.execute(
         "SELECT ts_utc, actor, action, command_id FROM audit_log ORDER BY id DESC LIMIT 20"
