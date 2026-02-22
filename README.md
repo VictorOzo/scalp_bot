@@ -163,3 +163,38 @@ for row in audit:
     print(row)
 PY
 ```
+
+## Dashboard Phase D4 (FastAPI backend)
+
+### Run API server
+```bash
+uvicorn api.app:app --reload
+# or
+python -m api
+```
+
+### Create admin/viewer users
+```bash
+python - <<'PY'
+from api.auth import ensure_user
+from storage.db import connect, init_db
+
+with connect() as conn:
+    init_db(conn)
+    ensure_user(conn, username="admin", password="change-me", role="admin")
+    ensure_user(conn, username="viewer", password="change-me", role="viewer")
+PY
+```
+
+### Login and enqueue command (cookie auth)
+```bash
+curl -i -X POST http://127.0.0.1:8000/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"username":"admin","password":"change-me"}' \
+  -c cookies.txt
+
+curl -X POST http://127.0.0.1:8000/commands \
+  -H 'content-type: application/json' \
+  -d '{"type":"PAUSE_PAIR","payload":{"pair":"EUR_USD"}}' \
+  -b cookies.txt
+```

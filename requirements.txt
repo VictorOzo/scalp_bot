@@ -2,3 +2,6 @@ oandapyV20
 pandas
 python-dotenv
 numpy
+fastapi
+uvicorn
+openpyxl
