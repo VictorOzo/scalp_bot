@@ -5,3 +5,7 @@ numpy
 fastapi
 uvicorn
 openpyxl
+pytest
+httpx
+PyJWT
+passlib[bcrypt]
