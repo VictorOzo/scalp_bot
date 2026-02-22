@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime
+from typing import Callable
 
-from execution.control_state import PAUSE_COMMANDS, apply_pause_command
-from storage.commands import fetch_next_pending, mark_command_done, mark_command_failed, mark_command_running
+from config.settings import COMMAND_RUNNING_TIMEOUT_SEC
+from execution.command_executor import process_next_command
+from execution.trade_store import TradeStore
+from storage.commands import fail_stale_running_commands
 from storage.db import write_gate_snapshot, write_heartbeat
 
 
@@ -16,27 +19,30 @@ def _load_latest_paused_pairs(conn: sqlite3.Connection) -> set[str]:
     return set(json.loads(row[0]))
 
 
-def run_cycle_once(conn: sqlite3.Connection, pairs: list[str], now_utc: datetime, offline: bool = True) -> None:
+def run_cycle_once(
+    conn: sqlite3.Connection,
+    pairs: list[str],
+    now_utc: datetime,
+    offline: bool = True,
+    strategy_eval: Callable[[str], None] | None = None,
+    handled_by: str = "cycle_once",
+) -> None:
     """Run one offline-safe control cycle: process one command and write snapshots."""
     if not offline:
         raise ValueError("run_cycle_once supports offline mode only")
 
     paused_pairs = _load_latest_paused_pairs(conn)
-    command_id = None
+    fail_stale_running_commands(conn, timeout_sec=COMMAND_RUNNING_TIMEOUT_SEC, handled_by=handled_by)
+    db_row = conn.execute("PRAGMA database_list").fetchone()
+    trade_store = TradeStore(db_row[2]) if db_row and db_row[2] else TradeStore()
 
-    command = fetch_next_pending(conn)
-    if command is not None:
-        command_id = int(command["id"])
-        mark_command_running(conn, command_id)
-        if command["type"] in PAUSE_COMMANDS:
-            paused_pairs = apply_pause_command(paused_pairs, command)
-            mark_command_done(
-                conn,
-                command_id,
-                result={"paused_pairs": sorted(paused_pairs), "type": command["type"]},
-            )
-        else:
-            mark_command_failed(conn, command_id, error=f"Command not implemented in phase D2: {command['type']}")
+    paused_pairs, command_result = process_next_command(
+        conn,
+        paused_pairs=paused_pairs,
+        handled_by=handled_by,
+        trade_store=trade_store,
+    )
+    command_id = None if command_result is None else int(command_result["id"])
 
     for pair in pairs:
         if pair in paused_pairs:
@@ -53,9 +59,11 @@ def run_cycle_once(conn: sqlite3.Connection, pairs: list[str], now_utc: datetime
                 enemy_ok=False,
                 final_signal="HOLD",
                 reason="paused",
-                details={"paused_by": "command", "command_id": command_id},
+                details={"paused": True, "pair": pair, "paused_by": "command", "command_id": command_id},
             )
         else:
+            if strategy_eval is not None:
+                strategy_eval(pair)
             write_gate_snapshot(
                 conn,
                 ts_utc=now_utc.isoformat(),
