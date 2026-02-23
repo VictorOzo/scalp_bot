@@ -119,6 +119,7 @@ def process_next_command(
     handled_by: str,
     trade_store: TradeStore | None = None,
     live_close_fn: LiveCloseFn | None = None,
+    reload_params_fn: Callable[[], None] | None = None,
 ) -> tuple[set[str], dict[str, Any] | None]:
     cmd = claim_next_pending(conn, handled_by=handled_by)
     if cmd is None:
@@ -143,6 +144,17 @@ def process_next_command(
             status, result = _handle_close_all(conn, cmd=cmd, actor=handled_by, store=store, live_close_fn=live_close_fn)
             mark_command_finished(conn, command_id, status=status, result=result, actor=handled_by)
             return paused_pairs, {"id": command_id, "status": status, "result": result}
+
+        if cmd["type"] == "RELOAD_PARAMS":
+            if reload_params_fn is None:
+                result = {"reloaded": False, "reason": "reload handler not configured"}
+                mark_command_finished(conn, command_id, status=STATUS_SKIPPED, result=result, actor=handled_by)
+                return paused_pairs, {"id": command_id, "status": STATUS_SKIPPED, "result": result}
+
+            reload_params_fn()
+            result = {"reloaded": True}
+            mark_command_finished(conn, command_id, status=STATUS_SUCCEEDED, result=result, actor=handled_by)
+            return paused_pairs, {"id": command_id, "status": STATUS_SUCCEEDED, "result": result}
 
         result = {"error": f"unsupported command type: {cmd['type']}"}
         mark_command_finished(conn, command_id, status=STATUS_FAILED, result=result, actor=handled_by)
