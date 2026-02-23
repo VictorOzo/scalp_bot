@@ -35,6 +35,12 @@ export default function OverviewPage() {
           <p>Last cycle: {statusQuery.data?.last_cycle_ts_utc ?? '-'}</p>
         </Card>
 
+        {statusQuery.data?.is_stale && (
+          <Card data-testid="stale-warning" className="border-amber-700 bg-amber-950/40">
+            <p className="text-amber-300">Bot heartbeat is stale (>{statusQuery.data?.stale_threshold_seconds}s). Check worker health.</p>
+          </Card>
+        )}
+
         {pairs.length === 0 ? (
           <Card><p>No pairs configured in settings.</p></Card>
         ) : (

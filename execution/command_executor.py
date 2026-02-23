@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 import traceback
 from typing import Any, Callable
 
 from config.settings import LIVE_TRADING_ENABLED
+from execution.alerting import get_alert_service
+from execution.alerts import AlertEvent
 from execution.control_state import PAUSE_COMMANDS, apply_pause_command
 from execution.trade_store import TradeStore
 from storage.commands import (
@@ -127,22 +130,54 @@ def process_next_command(
 
     store = trade_store or TradeStore()
     command_id = int(cmd["id"])
+    alert_service = get_alert_service()
 
     try:
         if cmd["type"] in PAUSE_COMMANDS:
             updated = apply_pause_command(paused_pairs, cmd)
             result = {"paused_pairs": sorted(updated), "type": cmd["type"]}
             mark_command_finished(conn, command_id, status=STATUS_SUCCEEDED, result=result, actor=handled_by)
+            if cmd["type"] in {"PAUSE_ALL", "RESUME_ALL"}:
+                alert_service.send(
+                    AlertEvent.KILL_SWITCH,
+                    {
+                        "enabled": cmd["type"] == "PAUSE_ALL",
+                        "source": "command_executor",
+                        "reason": cmd["type"],
+                        "pairs_closed": 0,
+                        "time_utc": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
             return updated, {"id": command_id, "status": STATUS_SUCCEEDED, "result": result}
 
         if cmd["type"] == "CLOSE_PAIR":
             status, result = _handle_close_pair(conn, cmd=cmd, actor=handled_by, store=store, live_close_fn=live_close_fn)
             mark_command_finished(conn, command_id, status=status, result=result, actor=handled_by)
+            if status == STATUS_SUCCEEDED and result.get("closed"):
+                alert_service.send(
+                    AlertEvent.TRADE_CLOSE,
+                    {
+                        "pair": result.get("pair"),
+                        "result": "MANUAL_CLOSE",
+                        "exit_price": result.get("exit_price"),
+                        "time_utc": cmd.get("finished_ts_utc") or cmd.get("created_ts_utc"),
+                    },
+                )
             return paused_pairs, {"id": command_id, "status": status, "result": result}
 
         if cmd["type"] == "CLOSE_ALL":
             status, result = _handle_close_all(conn, cmd=cmd, actor=handled_by, store=store, live_close_fn=live_close_fn)
             mark_command_finished(conn, command_id, status=status, result=result, actor=handled_by)
+            alert_service.send(
+                AlertEvent.KILL_SWITCH,
+                {
+                    "enabled": True,
+                    "source": "command_executor",
+                    "reason": "CLOSE_ALL",
+                    "pairs_closed": len(result.get("results", [])),
+                    "time_utc": cmd.get("created_ts_utc"),
+                },
+            )
             return paused_pairs, {"id": command_id, "status": status, "result": result}
 
         if cmd["type"] == "RELOAD_PARAMS":

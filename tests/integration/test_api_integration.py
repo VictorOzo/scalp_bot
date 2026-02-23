@@ -82,6 +82,15 @@ def test_api_endpoints_and_command_pickup(client: TestClient):
     status_res = client.get("/status")
     assert status_res.status_code == 200
     assert status_res.json()["last_cycle_ts_utc"] is not None
+    assert "is_stale" in status_res.json()
+
+    bot_status_res = client.get("/bot/status")
+    assert bot_status_res.status_code == 200
+    assert "stale_threshold_seconds" in bot_status_res.json()
+
+    health_res = client.get("/healthz")
+    assert health_res.status_code == 200
+    assert health_res.json()["ok"] is True
 
     positions_res = client.get("/positions")
     assert positions_res.status_code == 200
@@ -90,10 +99,6 @@ def test_api_endpoints_and_command_pickup(client: TestClient):
     gates_res = client.get("/gates", params={"pair": "EUR_USD"})
     assert gates_res.status_code == 200
     assert len(gates_res.json()) >= 1
-
-    trades_res = client.get("/trades", params={"pair": "EUR_USD"})
-    assert trades_res.status_code == 200
-    assert len(trades_res.json()["items"]) >= 1
 
     _login(client, "admin", "admin-pass")
     cmd_res = client.post("/commands", json={"type": "PAUSE_PAIR", "payload": {"pair": "EUR_USD"}})

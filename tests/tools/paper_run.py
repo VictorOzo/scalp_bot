@@ -13,6 +13,8 @@ from config.pairs import PAIR_STRATEGY_MAP
 from config.settings import OANDA_ACCOUNT_ID, TIMEFRAME
 from data.fetcher import get_candles, get_oanda_client
 from execution.paper_broker import PaperBroker
+from execution.alerting import get_alert_service
+from execution.alerts import AlertEvent
 from execution.kill_switch import close_all_positions
 from execution.risk_manager import RISK_PER_TRADE, calculate_sl_tp
 from execution.trade_store import TradeStore
@@ -141,6 +143,7 @@ def _run_pair(
 
 def run_offline(csv_path: Path, export_csv: bool = False) -> None:
     logger = _logger()
+    alert_service = get_alert_service()
     store = TradeStore()
     store.init_db()
     broker = PaperBroker(store, export_csv=export_csv)
@@ -207,6 +210,8 @@ def run_offline(csv_path: Path, export_csv: bool = False) -> None:
             if halted:
                 close_all_positions(broker, reason="DAILY_LOSS_HALT")
                 logger.warning("daily loss halt triggered drawdown=%.4f", drawdown)
+                alert_service.send(AlertEvent.DAILY_HALT, {"date_utc": today, "drawdown": drawdown, "threshold": MAX_DRAWDOWN, "mode": "LIVE"})
+                alert_service.send(AlertEvent.DAILY_HALT, {"date_utc": today, "drawdown": drawdown, "threshold": MAX_DRAWDOWN, "mode": "OFFLINE"})
                 break
 
     logger.info("offline run complete")
@@ -264,6 +269,7 @@ def run_live(pairs: list[str], export_csv: bool = False) -> None:
             if halted:
                 close_all_positions(broker, reason="DAILY_LOSS_HALT")
                 logger.warning("daily loss halt triggered drawdown=%.4f", drawdown)
+                alert_service.send(AlertEvent.DAILY_HALT, {"date_utc": today, "drawdown": drawdown, "threshold": MAX_DRAWDOWN, "mode": "OFFLINE"})
                 break
 
     logger.info("live paper run cycle complete")

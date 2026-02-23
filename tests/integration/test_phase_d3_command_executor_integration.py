@@ -77,6 +77,7 @@ def test_phase_d3_restart_safety_no_duplicate_actions(tmp_path):
         stale_status = conn.execute("SELECT status FROM commands WHERE id=?", (stale_id,)).fetchone()[0]
         paused = conn.execute("SELECT paused_pairs_json FROM bot_status ORDER BY id DESC LIMIT 1").fetchone()[0]
         closed_trades = conn.execute("SELECT COUNT(*) FROM trades WHERE pair='GBP_USD' AND time_close_utc IS NOT NULL").fetchone()[0]
+        runtime = conn.execute("SELECT startup_time_utc, last_restart_at FROM bot_runtime WHERE id=1").fetchone()
     finally:
         conn.close()
 

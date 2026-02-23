@@ -198,3 +198,12 @@ curl -X POST http://127.0.0.1:8000/commands \
   -d '{"type":"PAUSE_PAIR","payload":{"pair":"EUR_USD"}}' \
   -b cookies.txt
 ```
+
+## Phase D7 operations
+
+- Email alerts are SMTP-backed. Set: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`.
+- Destination defaults to `ALERT_EMAIL_TO=ozokweluvic@gmail.com`.
+- Health probe: `GET /healthz` (API + DB ping), and bot heartbeat details via `GET /bot/status`.
+- Stale threshold is `BOT_HEARTBEAT_STALE_SECONDS` (default 30s).
+- SQLite backups run daily into `backups/` and retain `SQLITE_BACKUP_RETENTION_DAYS` (default 7).
+- Log rotation is enabled with daily rollovers and `LOG_RETENTION_DAYS` retention.

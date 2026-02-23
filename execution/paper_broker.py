@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from execution.alerting import get_alert_service
+from execution.alerts import AlertEvent
 from execution.trade_store import TradeStore
 
 
@@ -12,6 +14,7 @@ class PaperBroker:
     def __init__(self, store: TradeStore, export_csv: bool = False) -> None:
         self.store = store
         self.export_csv = export_csv
+        self.alert_service = get_alert_service()
 
     @staticmethod
     def _pip_size(pair: str) -> float:
@@ -48,6 +51,7 @@ class PaperBroker:
             "meta_json": meta_json or {},
         }
         self.store.open_position(**opened, export_csv=self.export_csv)
+        self.alert_service.send(AlertEvent.TRADE_OPEN, opened)
         return opened
 
     def _close_position(
@@ -76,6 +80,7 @@ class PaperBroker:
             meta_json=meta_json,
             export_csv=self.export_csv,
         )
+        self.alert_service.send(AlertEvent.TRADE_CLOSE, {"pair": pair, "direction": direction, "result": result, "exit_price": exit_price, "pnl_pips": pnl_pips, "pnl_quote": pnl_quote, "time_utc": close_time})
         return {
             "pair": pair,
             "result": result,

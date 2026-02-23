@@ -87,6 +87,15 @@ def init_db(conn: sqlite3.Connection) -> None:
             meta_json TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS bot_runtime (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            last_heartbeat_at TEXT,
+            last_restart_at TEXT,
+            startup_time_utc TEXT,
+            handled_by TEXT,
+            version TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS gate_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ts_utc TEXT NOT NULL,
@@ -254,6 +263,31 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+
+def ping(conn: sqlite3.Connection) -> bool:
+    """Return True when DB responds to a simple ping query."""
+    try:
+        conn.execute("SELECT 1").fetchone()
+        return True
+    except sqlite3.Error:
+        return False
+
+
+def get_app_settings(conn: sqlite3.Connection, keys: list[str] | None = None) -> dict[str, Any]:
+    """Load settings values from app_settings table."""
+    if keys:
+        placeholders = ",".join("?" for _ in keys)
+        rows = conn.execute(
+            f"SELECT key, value_json FROM app_settings WHERE key IN ({placeholders})",
+            tuple(keys),
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT key, value_json FROM app_settings").fetchall()
+    out: dict[str, Any] = {}
+    for row in rows:
+        out[str(row[0])] = json.loads(row[1])
+    return out
+
 def _dump_json(value: dict[str, Any] | list[str] | None) -> str | None:
     if value is None:
         return None
@@ -271,6 +305,7 @@ def write_heartbeat(
     meta: dict[str, Any] | None,
 ) -> None:
     """Insert a bot heartbeat/status row into the bot_status table."""
+    now = utc_now_iso()
     conn.execute(
         """
         INSERT INTO bot_status (
@@ -278,7 +313,7 @@ def write_heartbeat(
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            utc_now_iso(),
+            now,
             mode,
             version,
             uptime_s,
@@ -287,8 +322,35 @@ def write_heartbeat(
             _dump_json(meta),
         ),
     )
+    conn.execute(
+        """
+        INSERT INTO bot_runtime (id, last_heartbeat_at, version)
+        VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            last_heartbeat_at = excluded.last_heartbeat_at,
+            version = COALESCE(excluded.version, bot_runtime.version)
+        """,
+        (now, version),
+    )
     conn.commit()
 
+
+
+def mark_bot_restart(conn: sqlite3.Connection, *, startup_time_utc: str | None = None, handled_by: str | None = None, version: str | None = None) -> None:
+    started = startup_time_utc or utc_now_iso()
+    conn.execute(
+        """
+        INSERT INTO bot_runtime (id, last_restart_at, startup_time_utc, handled_by, version)
+        VALUES (1, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            last_restart_at = excluded.last_restart_at,
+            startup_time_utc = excluded.startup_time_utc,
+            handled_by = excluded.handled_by,
+            version = COALESCE(excluded.version, bot_runtime.version)
+        """,
+        (started, started, handled_by, version),
+    )
+    conn.commit()
 
 def write_gate_snapshot(
     conn: sqlite3.Connection,
