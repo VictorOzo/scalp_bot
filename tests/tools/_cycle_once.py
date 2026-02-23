@@ -6,10 +6,13 @@ from datetime import datetime
 from typing import Callable
 
 from config.settings import COMMAND_RUNNING_TIMEOUT_SEC
+from execution.alerting import get_alert_service_for_db
+from execution.alerts import AlertEvent
 from execution.command_executor import process_next_command
+from execution.runtime_ops import maybe_backup_sqlite
 from execution.trade_store import TradeStore
 from storage.commands import fail_stale_running_commands
-from storage.db import get_db_path, write_gate_snapshot, write_heartbeat
+from storage.db import get_db_path, mark_bot_restart, write_gate_snapshot, write_heartbeat
 from storage.strategy_params import get_strategy_params_service
 
 
@@ -34,6 +37,16 @@ def run_cycle_once(
 
     paused_pairs = _load_latest_paused_pairs(conn)
     params_service = get_strategy_params_service(get_db_path())
+    alert_service = get_alert_service_for_db(conn)
+    runtime_row = conn.execute("SELECT startup_time_utc FROM bot_runtime WHERE id=1").fetchone()
+    if runtime_row is None or runtime_row[0] is None:
+        startup_time = now_utc.isoformat()
+        mark_bot_restart(conn, startup_time_utc=startup_time, handled_by=handled_by, version="phase-d7")
+        alert_service.send(
+            AlertEvent.BOT_RESTART,
+            {"service": "bot_worker", "handled_by": handled_by, "startup_time_utc": startup_time, "version": "phase-d7"},
+        )
+    maybe_backup_sqlite(get_db_path())
     fail_stale_running_commands(conn, timeout_sec=COMMAND_RUNNING_TIMEOUT_SEC, handled_by=handled_by)
     db_row = conn.execute("PRAGMA database_list").fetchone()
     trade_store = TradeStore(db_row[2]) if db_row and db_row[2] else TradeStore()

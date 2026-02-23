@@ -13,9 +13,9 @@ from api.routes.settings import router as settings_router
 from api.routes.status import router as status_router
 from api.routes.strategy_params import router as strategy_params_router
 from api.routes.trades import router as trades_router
-from storage.db import connect, init_db
+from storage.db import connect, init_db, ping
 
-app = FastAPI(title="Scalp Bot API", version="phase-d4")
+app = FastAPI(title="Scalp Bot API", version="phase-d7")
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,6 +50,21 @@ def _startup() -> None:
 
     bootstrap_admin_from_env()
 
+
+
+@app.get("/healthz")
+def healthz() -> dict[str, object]:
+    conn = connect()
+    try:
+        db_ok = ping(conn)
+    finally:
+        conn.close()
+    return {
+        "ok": db_ok,
+        "db": "ok" if db_ok else "error",
+        "version": app.version,
+        "build": "phase-d7",
+    }
 
 def main() -> None:
     import uvicorn

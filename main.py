@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import time
 from datetime import datetime, timezone
 
@@ -24,6 +23,7 @@ from execution.risk_manager import (
 )
 from filters.spread_filter import get_live_bid_ask
 from indicators.atr import calculate_atr
+from execution.logging_utils import setup_rotating_logger
 from strategies import bb_breakout, ema_vwap, vwap_rsi
 
 STRATEGY_FN = {
@@ -33,28 +33,9 @@ STRATEGY_FN = {
 }
 
 
-def setup_logging() -> logging.Logger:
-    """Configure application logging for console and CSV log file."""
-    logger = logging.getLogger("scalp_bot")
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
-
-    if logger.handlers:
-        return logger
-
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
-
-    file_handler = logging.FileHandler("logs/trade_log.csv")
-    file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s,%(levelname)s,%(message)s", datefmt="%Y-%m-%dT%H:%M:%SZ")
-    )
-
-    logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
-    return logger
+def setup_logging():
+    """Configure application logging for console and rotating log file."""
+    return setup_rotating_logger("scalp_bot", file_path="logs/trade_log.csv")
 
 
 def seconds_until_next_candle(timeframe_minutes: int = 5) -> float:

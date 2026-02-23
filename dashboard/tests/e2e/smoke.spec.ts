@@ -22,7 +22,7 @@ test.beforeEach(async ({ page }) => {
       return;
     }
     if (url.includes('/status')) {
-      await route.fulfill({ status: 200, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'OFFLINE', last_cycle_ts_utc: '2025-01-01T00:00:00+00:00' }) });
+      await route.fulfill({ status: 200, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'OFFLINE', last_cycle_ts_utc: '2025-01-01T00:00:00+00:00', is_stale: true, stale_threshold_seconds: 30 }) });
       return;
     }
     if (url.includes('/gates')) {
@@ -62,6 +62,7 @@ test('login -> overview -> trades export -> pause command', async ({ page }) => 
   await expect(page.getByTestId('overview-page')).toBeVisible();
   await expect(page.getByTestId('status-mode')).toContainText('OFFLINE');
   await expect(page.getByTestId('pair-card-EUR_USD')).toBeVisible();
+  await expect(page.getByTestId('stale-warning')).toBeVisible();
 
   await page.goto('/trades');
   await expect(page.getByTestId('trades-page')).toBeVisible();
