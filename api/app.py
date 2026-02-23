@@ -11,6 +11,7 @@ from api.routes.gates import router as gates_router
 from api.routes.positions import router as positions_router
 from api.routes.settings import router as settings_router
 from api.routes.status import router as status_router
+from api.routes.strategy_params import router as strategy_params_router
 from api.routes.trades import router as trades_router
 from storage.db import connect, init_db
 
@@ -35,6 +36,7 @@ app.include_router(trades_router)
 app.include_router(commands_router)
 app.include_router(exports_router)
 app.include_router(settings_router)
+app.include_router(strategy_params_router)
 app.include_router(audit_router)
 
 

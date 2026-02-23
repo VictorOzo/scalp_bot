@@ -138,9 +138,12 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS positions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             pair TEXT NOT NULL,
+            strategy TEXT,
             direction TEXT,
             units REAL,
             entry_price REAL,
+            sl_price REAL,
+            tp_price REAL,
             time_open_utc TEXT,
             is_open INTEGER NOT NULL DEFAULT 1,
             meta_json TEXT
@@ -160,6 +163,17 @@ def init_db(conn: sqlite3.Connection) -> None:
             updated_ts_utc TEXT NOT NULL,
             updated_by TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS strategy_params (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            strategy_name TEXT NOT NULL,
+            profile TEXT NOT NULL,
+            params_json TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 0,
+            updated_ts_utc TEXT NOT NULL,
+            updated_by TEXT NOT NULL,
+            UNIQUE(strategy_name, profile)
+        );
         """
     )
 
@@ -168,6 +182,9 @@ def init_db(conn: sqlite3.Connection) -> None:
 
     # positions columns required by /positions route
     _ensure_column(conn, "positions", "direction TEXT")
+    _ensure_column(conn, "positions", "strategy TEXT")
+    _ensure_column(conn, "positions", "sl_price REAL")
+    _ensure_column(conn, "positions", "tp_price REAL")
     _ensure_column(conn, "positions", "units REAL")
     _ensure_column(conn, "positions", "entry_price REAL")
     _ensure_column(conn, "positions", "time_open_utc TEXT")
@@ -175,6 +192,10 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "positions", "meta_json TEXT")
 
     conn.commit()
+
+    from storage.strategy_params import seed_defaults
+
+    seed_defaults(conn)
 
     # --- Indexes (safe after migrations) ---
     conn.executescript(
@@ -203,6 +224,12 @@ def init_db(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_users_username
         ON users(username);
+
+        CREATE INDEX IF NOT EXISTS idx_strategy_params_strategy
+        ON strategy_params(strategy_name);
+
+        CREATE INDEX IF NOT EXISTS idx_strategy_params_active
+        ON strategy_params(strategy_name, is_active);
         """
     )
 

@@ -15,9 +15,16 @@ from indicators.adx import calculate_adx
 from indicators.atr import calculate_atr
 from indicators.ema import calculate_ema
 from indicators.vwap import calculate_vwap
+from storage.db import get_db_path
+from storage.strategy_params import get_strategy_params_service
 
 
-def generate_signal_from_df(df: pd.DataFrame) -> str:
+def get_effective_params() -> dict[str, float]:
+    service = get_strategy_params_service(get_db_path())
+    return dict(service.get("ema_vwap").params)
+
+
+def generate_signal_from_df(df: pd.DataFrame, *, params: dict[str, float] | None = None) -> str:
     """
     Gate 7 signal logic only.
     Assumes df contains: close, vwap, atr, cross_up, cross_down.
@@ -30,8 +37,8 @@ def generate_signal_from_df(df: pd.DataFrame) -> str:
     vwap = float(last["vwap"])
     atr = float(last["atr"]) if pd.notna(last.get("atr")) else 0.0
 
-    # Slightly loosen VWAP filter to allow near-VWAP crosses.
-    vwap_tol = 0.2 * atr
+    effective = params or get_effective_params()
+    vwap_tol = float(effective["vwap_atr_tolerance"]) * atr
 
     if bool(last["cross_up"]) and close > (vwap - vwap_tol):
         return "BUY"
@@ -69,8 +76,9 @@ def get_signal(client, account_id) -> str:
     if not is_strategy_allowed("ema_vwap", df):
         return "HOLD"
 
+    params = get_effective_params()
     df = calculate_ema(df, fast=9, slow=21)
     df = calculate_vwap(df)
 
     # 7) Signal logic
-    return generate_signal_from_df(df)
+    return generate_signal_from_df(df, params=params)

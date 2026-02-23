@@ -111,3 +111,32 @@ def test_api_endpoints_and_command_pickup(client: TestClient):
 
     assert cmd_row[0] == "SUCCEEDED"
     assert audit_count >= 2
+
+
+def test_strategy_params_api_reload_updates_snapshot_meta(client: TestClient):
+    _login(client, "admin", "admin-pass")
+
+    update_res = client.put(
+        "/strategy-params/ema_vwap/normal",
+        json={"params": {"vwap_atr_tolerance": 0.01}},
+    )
+    assert update_res.status_code == 200
+
+    conn = connect()
+    try:
+        init_db(conn)
+        run_cycle_once(conn, pairs=["EUR_USD"], now_utc=datetime.now(timezone.utc), handled_by="itest-bot")
+        row = conn.execute(
+            "SELECT details_json FROM gate_snapshots WHERE pair = 'EUR_USD' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert row is not None
+    import json
+
+    details = json.loads(row[0])
+    params_meta = details.get("strategy_params")
+    assert params_meta is not None
+    assert params_meta["strategy_name"] == "ema_vwap"
+    assert params_meta["params"]["vwap_atr_tolerance"] == 0.01
